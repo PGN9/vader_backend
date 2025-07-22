@@ -1,9 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 # a tool to analyze sentiment (positive / negative / neutral) of text.
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 import os
+import time
+
+request_count = 0
+start_time = time.time()
 
 app = FastAPI()
 analyzer = SentimentIntensityAnalyzer()
@@ -24,7 +28,22 @@ def predict_sentiment(request: TextRequest):
                 "negative" if scores['compound'] < -0.05 else "neutral"
     return {"sentiment": sentiment, "scores": scores}
 
+@app.middleware("http")
+async def count_requests(request: Request, call_next):
+    global request_count, start_time
+    request_count += 1
+    response = await call_next(request)
 
+    elapsed = time.time() - start_time
+    if elapsed > 60:
+        print(f"[Request Stats] Last 60s - Requests: {request_count}, RPS: {request_count / elapsed:.2f}")
+        request_count = 0
+        start_time = time.time()
+
+    return response
+
+
+# Fix to help Render to find a port
 if __name__ == "__main__":
     import uvicorn
 
