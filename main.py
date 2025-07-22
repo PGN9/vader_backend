@@ -35,8 +35,8 @@ async def count_requests(request: Request, call_next):
     response = await call_next(request)
 
     elapsed = time.time() - start_time
-    if elapsed > 60:
-        print(f"[Request Stats] Last 60s - Requests: {request_count}, RPS: {request_count / elapsed:.2f}")
+    if elapsed > 10:
+        print(f"[Request Stats] Last 10s - Requests: {request_count}, RPS: {request_count / elapsed:.2f}", flush=True)
         request_count = 0
         start_time = time.time()
 
