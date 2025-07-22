@@ -6,7 +6,7 @@ How to run locally:
    pip install -r requirements.txt
 
 2. Run the server:
-   uvicorn main:app --reload
+   uvicorn main:app --host 127.0.0.1 --port 8000
 
 3. Open browser and go to:
    http://127.0.0.1:8000/docs
