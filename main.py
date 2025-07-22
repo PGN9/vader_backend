@@ -3,6 +3,8 @@ from pydantic import BaseModel
 # a tool to analyze sentiment (positive / negative / neutral) of text.
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+import os
+
 app = FastAPI()
 analyzer = SentimentIntensityAnalyzer()
 
@@ -11,9 +13,21 @@ analyzer = SentimentIntensityAnalyzer()
 class TextRequest(BaseModel):
     text: str
 
+@app.get("/")
+def root():
+    return {"message": "VADER backend is running."}
+
 @app.post("/predict")
 def predict_sentiment(request: TextRequest):
     scores = analyzer.polarity_scores(request.text)
     sentiment = "positive" if scores['compound'] > 0.05 else \
                 "negative" if scores['compound'] < -0.05 else "neutral"
     return {"sentiment": sentiment, "scores": scores}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    # Use PORT from Render, default to 8000 for local
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
