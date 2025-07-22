@@ -15,7 +15,7 @@ class TextRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"message": "VADER backend is running."}
+    return {"message": "vader backend is running."}
 
 @app.post("/predict")
 def predict_sentiment(request: TextRequest):
