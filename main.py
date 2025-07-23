@@ -25,6 +25,9 @@ def root():
 
 @app.post("/predict")
 def predict_sentiment(request: CommentsRequest):
+    # debug
+    print("Received comments:", request.comments)
+
     results = []
     for comment in request.comments:
         body = comment.body
