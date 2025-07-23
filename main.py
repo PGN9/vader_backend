@@ -1,23 +1,16 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from pydantic import BaseModel
+# a tool to analyze sentiment (positive / negative / neutral) of text.
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from typing import List
-import os
-import time
-
-request_count = 0
-start_time = time.time()
 
 app = FastAPI()
 analyzer = SentimentIntensityAnalyzer()
 
-# Accept a list of texts instead of a single string
+# define a data model called TextRequest (which extends BaseModel)
+# make sure the incoming JSON data has a field called text and that text is a string.
 class TextListRequest(BaseModel):
-    texts: List[str]
-
-@app.get("/")
-def root():
-    return {"message": "vader backend is running."}
+    text: List[str]
 
 @app.post("/predict")
 def predict_sentiment(request: TextListRequest):
@@ -35,23 +28,3 @@ def predict_sentiment(request: TextListRequest):
             "compound": scores["compound"]
         })
     return results
-
-@app.middleware("http")
-async def count_requests(request: Request, call_next):
-    global request_count, start_time
-    request_count += 1
-    response = await call_next(request)
-
-    elapsed = time.time() - start_time
-    if elapsed > 10:
-        print(f"[Request Stats] Last 10s - Requests: {request_count}, RPS: {request_count / elapsed:.2f}", flush=True)
-        request_count = 0
-        start_time = time.time()
-
-    return response
-
-# For Render or local deployment
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
