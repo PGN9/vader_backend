@@ -30,6 +30,11 @@ def root():
 @app.post("/predict")
 def predict_sentiment(request: CommentsRequest):
     try:
+        # Get process for memory monitoring
+        process = psutil.Process(os.getpid())
+        mem_before = process.memory_info().rss
+        mem_before_mb = mem_before / 1024 / 1024
+        
         print("Received comments:", request.comments)
 
         results = []
@@ -48,13 +53,13 @@ def predict_sentiment(request: CommentsRequest):
                 "sentiment_score": scores["compound"]
             })
 
-        # Memory usage in MB
-        process = psutil.Process(os.getpid())
-        mem_info = process.memory_info()
-        memory_usage_mb = mem_info.rss / 1024 / 1024
+        # final memory usage in MB
+        mem_after = process.memory_info().rss
+        memory_usage_mb = mem_after / 1024 / 1024
 
         return {
             "results": results,
+            "initial_memory_mb": round(mem_before_mb, 2),
             "memory_usage_mb": round(memory_usage_mb, 2)
         }
 
