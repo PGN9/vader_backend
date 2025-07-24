@@ -13,9 +13,9 @@ import tracemalloc
 request_count = 0
 start_time = time.time()
 # Get process for memory monitoring
+tracemalloc.start()
 process = psutil.Process(os.getpid())
 initial_memory_mb = process.memory_info().rss / 1024 / 1024
-tracemalloc.start()
 
 app = FastAPI()
 analyzer = SentimentIntensityAnalyzer()
@@ -34,10 +34,7 @@ def root():
 
 @app.post("/predict")
 def predict_sentiment(request: CommentsRequest):
-    try:
-        
-        print("Received comments:", request.comments)
-
+    try:        
         results = []
         for comment in request.comments:
             body = comment.body
@@ -54,13 +51,11 @@ def predict_sentiment(request: CommentsRequest):
                 "sentiment_score": scores["compound"]
             })
 
-        # Current memory usage
-        process = psutil.Process(os.getpid())
+        # Memory usage check
         current_memory_mb = process.memory_info().rss / 1024 / 1024
-
-        # Peak memory usage during this process (tracked by tracemalloc)
-        peak = tracemalloc.get_traced_memory()[1]
+        current, peak = tracemalloc.get_traced_memory()
         peak_memory_mb = peak / 1024 / 1024
+        tracemalloc.stop()
 
         return {
             "results": results,
