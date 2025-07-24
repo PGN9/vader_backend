@@ -76,6 +76,7 @@ def predict_sentiment(request: CommentsRequest):
 
         
         return_data = {
+            "model_used": "vader",
             "results": results,
             "memory_initial_mb": round(initial_memory_mb, 2),
             "memory_peak_mb": round(peak_memory_mb, 2)
