@@ -7,15 +7,11 @@ import time
 import psutil
 from fastapi.responses import JSONResponse
 import traceback
-import tracemalloc
+import platform
 
 
 request_count = 0
 start_time = time.time()
-# Get process for memory monitoring
-tracemalloc.start()
-process = psutil.Process(os.getpid())
-initial_memory_mb = process.memory_info().rss / 1024 / 1024
 
 app = FastAPI()
 analyzer = SentimentIntensityAnalyzer()
@@ -34,7 +30,11 @@ def root():
 
 @app.post("/predict")
 def predict_sentiment(request: CommentsRequest):
-    try:        
+    try:
+        # Get process for memory monitoring
+        process = psutil.Process(os.getpid())
+        initial_memory_mb = process.memory_info().rss / 1024 / 1024 
+
         results = []
         for comment in request.comments:
             body = comment.body
@@ -53,9 +53,19 @@ def predict_sentiment(request: CommentsRequest):
 
         # Memory usage check
         current_memory_mb = process.memory_info().rss / 1024 / 1024
-        current, peak = tracemalloc.get_traced_memory()
-        peak_memory_mb = peak / 1024 / 1024
-        tracemalloc.stop()
+        # Peak memory usage (cross-platform)
+        if platform.system() == "Windows":
+            peak_memory_mb = getattr(process.memory_info(), "peak_wset", current_memory_mb) / 1024 / 1024
+        elif platform.system() == "Linux":
+            import resource
+            peak_memory_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            peak_memory_mb = peak_memory_kb / 1024
+        elif platform.system() == "Darwin":  # macOS
+            import resource
+            peak_memory_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            peak_memory_mb = peak_memory_bytes / 1024 / 1024
+        else:
+            peak_memory_mb = current_memory_mb  # fallback
 
         return {
             "results": results,
