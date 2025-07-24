@@ -1,10 +1,13 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import os
 import time
-import psutil  # <-- NEW IMPORT
+import psutil
+from fastapi.responses import JSONResponse
+import traceback
+
 
 request_count = 0
 start_time = time.time()
@@ -23,36 +26,42 @@ class CommentsRequest(BaseModel):
 def root():
     return {"message": "vader backend is running."}
 
+
 @app.post("/predict")
 def predict_sentiment(request: CommentsRequest):
-    # debug
-    #print("Received comments:", request.comments)
+    try:
+        print("Received comments:", request.comments)
 
-    results = []
-    for comment in request.comments:
-        body = comment.body
-        scores = analyzer.polarity_scores(body)
-        sentiment = (
-            "positive" if scores["compound"] > 0.05 else
-            "negative" if scores["compound"] < -0.05 else
-            "neutral"
-        )
-        results.append({
-            "id": comment.id,
-            "body": body,
-            "sentiment": sentiment,
-            "sentiment_score": scores["compound"]
-        })
+        results = []
+        for comment in request.comments:
+            body = comment.body
+            scores = analyzer.polarity_scores(body)
+            sentiment = (
+                "positive" if scores["compound"] > 0.05 else
+                "negative" if scores["compound"] < -0.05 else
+                "neutral"
+            )
+            results.append({
+                "id": comment.id,
+                "body": body,
+                "sentiment": sentiment,
+                "sentiment_score": scores["compound"]
+            })
 
-    # Memory usage in MB
-    process = psutil.Process(os.getpid())
-    mem_info = process.memory_info()
-    memory_usage_mb = mem_info.rss / 1024 / 1024
+        # Memory usage in MB
+        process = psutil.Process(os.getpid())
+        mem_info = process.memory_info()
+        memory_usage_mb = mem_info.rss / 1024 / 1024
 
-    return {
-        "results": results,
-        "memory_usage_mb": round(memory_usage_mb, 2)
-    }
+        return {
+            "results": results,
+            "memory_usage_mb": round(memory_usage_mb, 2)
+        }
+
+    except Exception as e:
+        print("Error occurred:", str(e))
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn
