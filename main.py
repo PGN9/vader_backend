@@ -2,10 +2,10 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from fastapi.responses import JSONResponse
 import os
 import time
 import psutil
-from fastapi.responses import JSONResponse
 import traceback
 import platform
 import json
@@ -39,7 +39,7 @@ def predict_sentiment(request: CommentsRequest):
         process = psutil.Process(os.getpid())
         initial_memory_mb = process.memory_info().rss / 1024 / 1024 
         # Track input size
-        input_json = json.dumps(request.dict()) if hasattr(request, "json") else str(request)
+        input_json = json.dumps(request.model_dump()) if hasattr(request, "json") else str(request)
         total_data_size_kb = get_size_in_kb(input_json)
 
         results = []
