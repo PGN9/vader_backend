@@ -7,10 +7,15 @@ import time
 import psutil
 from fastapi.responses import JSONResponse
 import traceback
+import tracemalloc
 
 
 request_count = 0
 start_time = time.time()
+# Get process for memory monitoring
+process = psutil.Process(os.getpid())
+initial_memory_mb = process.memory_info().rss / 1024 / 1024
+tracemalloc.start()
 
 app = FastAPI()
 analyzer = SentimentIntensityAnalyzer()
@@ -30,10 +35,6 @@ def root():
 @app.post("/predict")
 def predict_sentiment(request: CommentsRequest):
     try:
-        # Get process for memory monitoring
-        process = psutil.Process(os.getpid())
-        mem_before = process.memory_info().rss
-        mem_before_mb = mem_before / 1024 / 1024
         
         print("Received comments:", request.comments)
 
@@ -53,14 +54,19 @@ def predict_sentiment(request: CommentsRequest):
                 "sentiment_score": scores["compound"]
             })
 
-        # final memory usage in MB
-        mem_after = process.memory_info().rss
-        memory_usage_mb = mem_after / 1024 / 1024
+        # Current memory usage
+        process = psutil.Process(os.getpid())
+        current_memory_mb = process.memory_info().rss / 1024 / 1024
+
+        # Peak memory usage during this process (tracked by tracemalloc)
+        peak = tracemalloc.get_traced_memory()[1]
+        peak_memory_mb = peak / 1024 / 1024
 
         return {
             "results": results,
-            "initial_memory_mb": round(mem_before_mb, 2),
-            "memory_usage_mb": round(memory_usage_mb, 2)
+            "proxy_memory_initial_mb": round(initial_memory_mb, 2),
+            "proxy_memory_usage_mb": round(current_memory_mb, 2),
+            "proxy_memory_peak_mb": round(peak_memory_mb, 2)
         }
 
     except Exception as e:
