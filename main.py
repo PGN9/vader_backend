@@ -8,6 +8,7 @@ import psutil
 from fastapi.responses import JSONResponse
 import traceback
 import platform
+import json
 
 
 request_count = 0
@@ -23,6 +24,9 @@ class Comment(BaseModel):
 class CommentsRequest(BaseModel):
     comments: List[Comment]
 
+def get_size_in_kb(data):
+    return len(data.encode('utf-8')) / 1024  # size in KB
+
 @app.get("/")
 def root():
     return {"message": "vader backend is running."}
@@ -34,6 +38,9 @@ def predict_sentiment(request: CommentsRequest):
         # Get process for memory monitoring
         process = psutil.Process(os.getpid())
         initial_memory_mb = process.memory_info().rss / 1024 / 1024 
+        # Track input size
+        input_json = json.dumps(request.dict()) if hasattr(request, "json") else str(request)
+        total_data_size_kb = get_size_in_kb(input_json)
 
         results = []
         for comment in request.comments:
@@ -67,12 +74,17 @@ def predict_sentiment(request: CommentsRequest):
         else:
             peak_memory_mb = current_memory_mb  # fallback
 
-        return {
+        
+        return_data = {
             "results": results,
-            "proxy_memory_initial_mb": round(initial_memory_mb, 2),
-            "proxy_memory_usage_mb": round(current_memory_mb, 2),
-            "proxy_memory_peak_mb": round(peak_memory_mb, 2)
+            "memory_initial_mb": round(initial_memory_mb, 2),
+            "memory_peak_mb": round(peak_memory_mb, 2)
         }
+        # add data size info
+        total_return_size_kb = get_size_in_kb(json.dumps(return_data))
+        return_data["total_data_size_kb"] = round(total_data_size_kb, 2)
+        return_data["total_return_size_kb"] = round(total_return_size_kb, 2)
+        return return_data
 
     except Exception as e:
         print("Error occurred:", str(e))
