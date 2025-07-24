@@ -1,21 +1,25 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from fastapi.responses import JSONResponse
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import torch
+import torch.nn.functional as F
 import os
-import time
 import psutil
+from fastapi.responses import JSONResponse
 import traceback
 import platform
 import json
 
+# Load Hugging Face model
+MODEL_NAME = "lxyuan/distilbert-base-multilingual-cased-sentiments-student"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
 
-request_count = 0
-start_time = time.time()
+# Label mapping based on HuggingFace model card
+LABEL_MAP = {0: "negative", 1: "neutral", 2: "positive"}
 
 app = FastAPI()
-analyzer = SentimentIntensityAnalyzer()
 
 class Comment(BaseModel):
     id: str
@@ -24,67 +28,69 @@ class Comment(BaseModel):
 class CommentsRequest(BaseModel):
     comments: List[Comment]
 
-def get_size_in_kb(data):
-    return len(data.encode('utf-8')) / 1024  # size in KB
+def get_size_in_kb(data: str) -> float:
+    return len(data.encode('utf-8')) / 1024
 
 @app.get("/")
 def root():
-    return {"message": "vader backend is running."}
-
+    return {"message": "Sentiment Classification using lxyuan/distilbert-base-multilingual-cased-sentiments-student"}
 
 @app.post("/predict")
 def predict_sentiment(request: CommentsRequest):
     try:
-        # Get process for memory monitoring
         process = psutil.Process(os.getpid())
-        initial_memory_mb = process.memory_info().rss / 1024 / 1024 
-        # Track input size
-        input_json = json.dumps(request.model_dump()) if hasattr(request, "json") else str(request)
+        initial_memory_mb = process.memory_info().rss / 1024 / 1024
+
+        input_json = json.dumps(request.dict())
         total_data_size_kb = get_size_in_kb(input_json)
 
         results = []
+
         for comment in request.comments:
-            body = comment.body
-            scores = analyzer.polarity_scores(body)
-            sentiment = (
-                "positive" if scores["compound"] > 0.05 else
-                "negative" if scores["compound"] < -0.05 else
-                "neutral"
-            )
+            text = comment.body
+
+            # Hugging Face classification
+            inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+            with torch.no_grad():
+                logits = model(**inputs).logits
+                probs = F.softmax(logits, dim=1)
+                label_id = torch.argmax(probs).item()
+                confidence = probs[0][label_id].item()
+
+            sentiment = LABEL_MAP.get(label_id, "unknown")
+
             results.append({
                 "id": comment.id,
-                "body": body,
+                "body": text,
                 "sentiment": sentiment,
-                "sentiment_score": scores["compound"]
+                "sentiment_score": round(confidence, 4)
             })
 
-        # Memory usage check
         current_memory_mb = process.memory_info().rss / 1024 / 1024
-        # Peak memory usage (cross-platform)
+
+        # Platform-specific memory peak check
         if platform.system() == "Windows":
             peak_memory_mb = getattr(process.memory_info(), "peak_wset", current_memory_mb) / 1024 / 1024
         elif platform.system() == "Linux":
             import resource
             peak_memory_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             peak_memory_mb = peak_memory_kb / 1024
-        elif platform.system() == "Darwin":  # macOS
+        elif platform.system() == "Darwin":
             import resource
             peak_memory_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
             peak_memory_mb = peak_memory_bytes / 1024 / 1024
         else:
-            peak_memory_mb = current_memory_mb  # fallback
+            peak_memory_mb = current_memory_mb
 
-        
         return_data = {
-            "model_used": "vader",
+            "model_used": MODEL_NAME,
             "results": results,
             "memory_initial_mb": round(initial_memory_mb, 2),
-            "memory_peak_mb": round(peak_memory_mb, 2)
+            "memory_peak_mb": round(peak_memory_mb, 2),
+            "total_data_size_kb": round(total_data_size_kb, 2),
+            "total_return_size_kb": round(get_size_in_kb(json.dumps(results)), 2)
         }
-        # add data size info
-        total_return_size_kb = get_size_in_kb(json.dumps(return_data))
-        return_data["total_data_size_kb"] = round(total_data_size_kb, 2)
-        return_data["total_return_size_kb"] = round(total_return_size_kb, 2)
+
         return return_data
 
     except Exception as e:
