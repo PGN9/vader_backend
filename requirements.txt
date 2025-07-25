@@ -1,6 +1,5 @@
 fastapi
 uvicorn[standard]
-tensorflow
 transformers
 onnxruntime
 requests
