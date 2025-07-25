@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from typing import List
 from transformers import AutoTokenizer
@@ -11,35 +11,33 @@ import requests
 import traceback
 import platform
 import json
+import time
+import asyncio
 
-# Load quantized ONNX model
+# === Global Load Flag ===
+model_loaded = False
+
+# === Model Info ===
 MODEL_NAME = "lxyuan/distilbert-base-multilingual-cased-sentiments-student"
-ONNX_MODEL_PATH = "./onnx_model/model-quant.onnx"  # Define local path for the model file
+ONNX_MODEL_PATH = "./onnx_model/model-quant.onnx"
 ONNX_MODEL_URL = "https://huggingface.co/dakyswr/lxyuan-distilbert-sentiment-onnx/resolve/main/model-quant.onnx"
 
+# === Download ONNX Model if Needed ===
 def download_model():
-    model_path = ONNX_MODEL_PATH
-    if not os.path.exists(model_path):
+    if not os.path.exists(ONNX_MODEL_PATH):
         print("Downloading ONNX model...")
-        os.makedirs(os.path.dirname(model_path), exist_ok=True)
-        with open(model_path, "wb") as f:
+        os.makedirs(os.path.dirname(ONNX_MODEL_PATH), exist_ok=True)
+        with open(ONNX_MODEL_PATH, "wb") as f:
             f.write(requests.get(ONNX_MODEL_URL).content)
         print("Download complete.")
 
 download_model()
 
-
-# Load tokenizer
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-try:
-    session = ort.InferenceSession(ONNX_MODEL_PATH)
-except Exception as e:
-    raise RuntimeError(f"Failed to load ONNX model at {ONNX_MODEL_PATH}: {e}")
-
+# === App Init ===
+app = FastAPI()
 LABEL_MAP = {0: "negative", 1: "neutral", 2: "positive"}
 
-app = FastAPI()
-
+# === Classes ===
 class Comment(BaseModel):
     id: str
     body: str
@@ -47,38 +45,61 @@ class Comment(BaseModel):
 class CommentsRequest(BaseModel):
     comments: List[Comment]
 
+# === Helpers ===
 def get_size_in_kb(data: str) -> float:
     return len(data.encode("utf-8")) / 1024
 
-@app.get("/")
-def root():
-    return {"message": f"Sentiment Classification using {MODEL_NAME}"}
+# === Health Check Route ===
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
-@app.post("/predict")
-def predict_sentiment(request: CommentsRequest):
+# === Startup Event: Load Tokenizer & Model ===
+@app.lifespan("startup")
+async def load_model():
+    global tokenizer, session, model_loaded
     try:
-        print("Received /predict request")
+        print("🔄 Loading tokenizer and ONNX model...")
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        session = ort.InferenceSession(ONNX_MODEL_PATH)
+        
+        # 🔥 Warm-up with a dummy comment
+        dummy_input = tokenizer(["Hello world!"], return_tensors="np", truncation=True, padding=True)
+        _ = session.run(None, {
+            "input_ids": dummy_input["input_ids"],
+            "attention_mask": dummy_input["attention_mask"]
+        })
+
+        model_loaded = True
+        print("✅ Model ready and warm-up complete.")
+    except Exception as e:
+        print("❌ Model load failed:", str(e))
+        traceback.print_exc()
+
+
+# === Predict Endpoint ===
+@app.post("/predict")
+async def predict_sentiment(request: CommentsRequest):
+    if not model_loaded:
+        return JSONResponse(status_code=503, content={"error": "Model is not yet loaded."})
+
+    try:
+        print("📨 Received /predict request")
         process = psutil.Process(os.getpid())
         initial_memory_mb = process.memory_info().rss / 1024 / 1024
 
         input_json = json.dumps(request.dict())
         total_data_size_kb = get_size_in_kb(input_json)
 
-        # --- Batch inference starts here ---
         texts = [comment.body for comment in request.comments]
         ids = [comment.id for comment in request.comments]
 
-        inputs = tokenizer(
-            texts, return_tensors="np", truncation=True,
-            padding=True, max_length=512
-        )
-
+        inputs = tokenizer(texts, return_tensors="np", truncation=True, padding=True, max_length=512)
         onnx_inputs = {
             "input_ids": inputs["input_ids"],
             "attention_mask": inputs["attention_mask"]
         }
 
-        import time
         start_time = time.time()
         logits = session.run(None, onnx_inputs)[0]  # Shape: (batch_size, 3)
         elapsed = time.time() - start_time
@@ -95,11 +116,8 @@ def predict_sentiment(request: CommentsRequest):
                 "sentiment": LABEL_MAP.get(int(label_id), "unknown"),
                 "sentiment_score": round(float(probs[i][label_id]), 4)
             })
-        # --- End of batch inference ---
 
         current_memory_mb = process.memory_info().rss / 1024 / 1024
-
-        # Platform-specific peak memory
         if platform.system() == "Windows":
             peak_memory_mb = getattr(process.memory_info(), "peak_wset", current_memory_mb) / 1024 / 1024
         elif platform.system() == "Linux":
@@ -121,11 +139,11 @@ def predict_sentiment(request: CommentsRequest):
         }
 
     except Exception as e:
-        print("Error:", str(e))
+        print("❌ Error during inference:", str(e))
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-
+# === Run Server ===
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
