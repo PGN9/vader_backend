@@ -1,23 +1,26 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch
-import torch.nn.functional as F
+from transformers import AutoTokenizer
+import onnxruntime as ort
+import numpy as np
 import os
 import psutil
 from fastapi.responses import JSONResponse
 import traceback
 import platform
 import json
-torch.set_num_threads(1)
 
-# Load Hugging Face model
+# Load tokenizer and quantized ONNX model
 MODEL_NAME = "lxyuan/distilbert-base-multilingual-cased-sentiments-student"
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME)
+ONNX_MODEL_PATH = "./onnx_model/model-quant.onnx"
 
-# Label mapping based on HuggingFace model card
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+try:
+    session = ort.InferenceSession(ONNX_MODEL_PATH)
+except Exception as e:
+    raise RuntimeError(f"Failed to load ONNX model at {ONNX_MODEL_PATH}: {e}")
+
 LABEL_MAP = {0: "negative", 1: "neutral", 2: "positive"}
 
 app = FastAPI()
@@ -30,11 +33,11 @@ class CommentsRequest(BaseModel):
     comments: List[Comment]
 
 def get_size_in_kb(data: str) -> float:
-    return len(data.encode('utf-8')) / 1024
+    return len(data.encode("utf-8")) / 1024
 
 @app.get("/")
 def root():
-    return {"message": "Sentiment Classification using lxyuan/distilbert-base-multilingual-cased-sentiments-student"}
+    return {"message": f"Sentiment Classification using {MODEL_NAME}"}
 
 @app.post("/predict")
 def predict_sentiment(request: CommentsRequest):
@@ -50,40 +53,39 @@ def predict_sentiment(request: CommentsRequest):
         for comment in request.comments:
             text = comment.body
 
-            # Hugging Face classification
-            inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
-            with torch.no_grad():
-                logits = model(**inputs).logits
-                probs = F.softmax(logits, dim=1)
-                label_id = torch.argmax(probs).item()
-                confidence = probs[0][label_id].item()
+            inputs = tokenizer(text, return_tensors="np", truncation=True, padding=True, max_length=512)
+            onnx_inputs = {
+                "input_ids": inputs["input_ids"],
+                "attention_mask": inputs["attention_mask"]
+            }
 
-            sentiment = LABEL_MAP.get(label_id, "unknown")
+            logits = session.run(None, onnx_inputs)[0]
+            probs = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)
+            label_id = int(np.argmax(probs))
+            confidence = float(probs[0][label_id])
 
             results.append({
                 "id": comment.id,
                 "body": text,
-                "sentiment": sentiment,
+                "sentiment": LABEL_MAP.get(label_id, "unknown"),
                 "sentiment_score": round(confidence, 4)
             })
 
         current_memory_mb = process.memory_info().rss / 1024 / 1024
 
-        # Platform-specific memory peak check
+        # Platform-specific peak memory
         if platform.system() == "Windows":
             peak_memory_mb = getattr(process.memory_info(), "peak_wset", current_memory_mb) / 1024 / 1024
         elif platform.system() == "Linux":
             import resource
-            peak_memory_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            peak_memory_mb = peak_memory_kb / 1024
+            peak_memory_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
         elif platform.system() == "Darwin":
             import resource
-            peak_memory_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            peak_memory_mb = peak_memory_bytes / 1024 / 1024
+            peak_memory_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024 / 1024
         else:
             peak_memory_mb = current_memory_mb
 
-        return_data = {
+        return {
             "model_used": MODEL_NAME,
             "results": results,
             "memory_initial_mb": round(initial_memory_mb, 2),
@@ -92,10 +94,8 @@ def predict_sentiment(request: CommentsRequest):
             "total_return_size_kb": round(get_size_in_kb(json.dumps(results)), 2)
         }
 
-        return return_data
-
     except Exception as e:
-        print("Error occurred:", str(e))
+        print("Error:", str(e))
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
 
@@ -103,4 +103,3 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
-

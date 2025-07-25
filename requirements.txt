@@ -1,6 +1,11 @@
-fastapi
-uvicorn
-pydantic
-psutil
-transformers
-torch
+fastapi==0.116.1
+uvicorn[standard]==0.29.0
+
+transformers==4.42.1
+onnxruntime==1.17.3
+numpy==1.26.4
+
+psutil==5.9.8
+
+optimum[onnxruntime]
+onnx
