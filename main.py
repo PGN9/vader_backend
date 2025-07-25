@@ -64,28 +64,38 @@ def predict_sentiment(request: CommentsRequest):
         input_json = json.dumps(request.dict())
         total_data_size_kb = get_size_in_kb(input_json)
 
+        # --- Batch inference starts here ---
+        texts = [comment.body for comment in request.comments]
+        ids = [comment.id for comment in request.comments]
+
+        inputs = tokenizer(
+            texts, return_tensors="np", truncation=True,
+            padding=True, max_length=512
+        )
+
+        onnx_inputs = {
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"]
+        }
+
+        import time
+        start_time = time.time()
+        logits = session.run(None, onnx_inputs)[0]  # Shape: (batch_size, 3)
+        elapsed = time.time() - start_time
+        print(f"⏱️ Inference time for {len(texts)} comments: {round(elapsed, 3)} seconds")
+
+        probs = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)
+        label_ids = np.argmax(probs, axis=1)
+
         results = []
-
-        for comment in request.comments:
-            text = comment.body
-
-            inputs = tokenizer(text, return_tensors="np", truncation=True, padding=True, max_length=512)
-            onnx_inputs = {
-                "input_ids": inputs["input_ids"],
-                "attention_mask": inputs["attention_mask"]
-            }
-
-            logits = session.run(None, onnx_inputs)[0]
-            probs = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)
-            label_id = int(np.argmax(probs))
-            confidence = float(probs[0][label_id])
-
+        for i, label_id in enumerate(label_ids):
             results.append({
-                "id": comment.id,
-                "body": text,
-                "sentiment": LABEL_MAP.get(label_id, "unknown"),
-                "sentiment_score": round(confidence, 4)
+                "id": ids[i],
+                "body": texts[i],
+                "sentiment": LABEL_MAP.get(int(label_id), "unknown"),
+                "sentiment_score": round(float(probs[i][label_id]), 4)
             })
+        # --- End of batch inference ---
 
         current_memory_mb = process.memory_info().rss / 1024 / 1024
 
@@ -114,6 +124,7 @@ def predict_sentiment(request: CommentsRequest):
         print("Error:", str(e))
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 if __name__ == "__main__":
     import uvicorn
