@@ -1,1 +1,2 @@
-__pycache__/onnx_model/*.onnx
+__pycache__
+/onnx_model
