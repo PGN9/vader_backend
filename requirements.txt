@@ -1,6 +1,6 @@
 fastapi==0.95.2
 uvicorn[standard]==0.22.0
-tensorflow==2.2.0
+tensorflow
 transformers==4.42.1
 onnxruntime
 requests==2.31.0
