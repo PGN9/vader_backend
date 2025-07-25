@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 import traceback
 import platform
 import json
+torch.set_num_threads(1)
 
 # Load Hugging Face model
 MODEL_NAME = "lxyuan/distilbert-base-multilingual-cased-sentiments-student"
@@ -100,6 +101,6 @@ def predict_sentiment(request: CommentsRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 10000))  # Render sets $PORT
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port)
 
