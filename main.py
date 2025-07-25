@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from fastapi.responses import JSONResponse
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from transformers import pipeline
 import os
 import time
 import psutil
@@ -15,7 +16,9 @@ request_count = 0
 start_time = time.time()
 
 app = FastAPI()
-analyzer = SentimentIntensityAnalyzer()
+
+emotion_classifier = pipeline("text-classification", model="bhadresh-savani/distilbert-base-uncased-emotion", top_k=None)
+sentiment_analyzer = SentimentIntensityAnalyzer()
 
 class Comment(BaseModel):
     id: str
@@ -29,7 +32,7 @@ def get_size_in_kb(data):
 
 @app.get("/")
 def root():
-    return {"message": "vader backend is running."}
+    return {"message": "model backend is running."}
 
 
 @app.post("/predict")
@@ -45,17 +48,27 @@ def predict_sentiment(request: CommentsRequest):
         results = []
         for comment in request.comments:
             body = comment.body
-            scores = analyzer.polarity_scores(body)
+
+            # VADER sentiment
+            scores = sentiment_analyzer.polarity_scores(body)
             sentiment = (
                 "positive" if scores["compound"] > 0.05 else
                 "negative" if scores["compound"] < -0.05 else
                 "neutral"
             )
+
+            # Emotion classification via Hugging Face
+            emotion_results = emotion_classifier(body)[0]  # Get all emotion scores
+            top_emotion = max(emotion_results, key=lambda x: x["score"])["label"]
+            emotion_scores = {res["label"]: round(res["score"], 4) for res in emotion_results}
+
             results.append({
                 "id": comment.id,
                 "body": body,
                 "sentiment": sentiment,
-                "sentiment_score": scores["compound"]
+                "sentiment_score": round(scores["compound"], 4),
+                "emotion": top_emotion,
+                "emotion_scores": emotion_scores
             })
 
         # Memory usage check
