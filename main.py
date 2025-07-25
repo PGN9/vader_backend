@@ -57,6 +57,7 @@ def root():
 @app.post("/predict")
 def predict_sentiment(request: CommentsRequest):
     try:
+        print("Received /predict request")
         process = psutil.Process(os.getpid())
         initial_memory_mb = process.memory_info().rss / 1024 / 1024
 
