@@ -55,7 +55,7 @@ def health():
     return {"status": "ok"}
 
 # === Startup Event: Load Tokenizer & Model ===
-@app.lifespan("startup")
+@app.on_event("startup")
 async def load_model():
     global tokenizer, session, model_loaded
     try:
