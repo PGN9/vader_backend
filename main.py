@@ -2,19 +2,34 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
 from transformers import AutoTokenizer
+from fastapi.responses import JSONResponse
 import onnxruntime as ort
 import numpy as np
 import os
 import psutil
-from fastapi.responses import JSONResponse
+import requests
 import traceback
 import platform
 import json
 
-# Load tokenizer and quantized ONNX model
+# Load quantized ONNX model
 MODEL_NAME = "lxyuan/distilbert-base-multilingual-cased-sentiments-student"
-ONNX_MODEL_PATH = "./onnx_model/model-quant.onnx"
+ONNX_MODEL_PATH = "./onnx_model/model-quant.onnx"  # Define local path for the model file
+ONNX_MODEL_URL = "https://huggingface.co/dakyswr/lxyuan-distilbert-sentiment-onnx/resolve/main/model-quant.onnx"
 
+def download_model():
+    model_path = ONNX_MODEL_PATH
+    if not os.path.exists(model_path):
+        print("Downloading ONNX model...")
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        with open(model_path, "wb") as f:
+            f.write(requests.get(ONNX_MODEL_URL).content)
+        print("Download complete.")
+
+download_model()
+
+
+# Load tokenizer
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 try:
     session = ort.InferenceSession(ONNX_MODEL_PATH)
