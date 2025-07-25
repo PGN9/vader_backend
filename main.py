@@ -17,8 +17,8 @@ start_time = time.time()
 
 app = FastAPI()
 
-emotion_classifier = pipeline("text-classification", model="bhadresh-savani/distilbert-base-uncased-emotion", top_k=None)
-sentiment_analyzer = SentimentIntensityAnalyzer()
+EMOTION_CLASSIFIER_MODEL_NAME = "bhadresh-savani/distilbert-base-uncased-emotion"
+emotion_classifier = pipeline("text-classification", model=EMOTION_CLASSIFIER_MODEL_NAME, top_k=None)
 
 class Comment(BaseModel):
     id: str
@@ -49,14 +49,6 @@ def predict_sentiment(request: CommentsRequest):
         for comment in request.comments:
             body = comment.body
 
-            # VADER sentiment
-            scores = sentiment_analyzer.polarity_scores(body)
-            sentiment = (
-                "positive" if scores["compound"] > 0.05 else
-                "negative" if scores["compound"] < -0.05 else
-                "neutral"
-            )
-
             # Emotion classification via Hugging Face
             emotion_results = emotion_classifier(body)[0]  # Get all emotion scores
             top_emotion = max(emotion_results, key=lambda x: x["score"])["label"]
@@ -65,8 +57,6 @@ def predict_sentiment(request: CommentsRequest):
             results.append({
                 "id": comment.id,
                 "body": body,
-                "sentiment": sentiment,
-                "sentiment_score": round(scores["compound"], 4),
                 "emotion": top_emotion,
                 "emotion_scores": emotion_scores
             })
@@ -89,7 +79,7 @@ def predict_sentiment(request: CommentsRequest):
 
         
         return_data = {
-            "model_used": "vader",
+            "emotion_classifier_model": EMOTION_CLASSIFIER_MODEL_NAME,
             "results": results,
             "memory_initial_mb": round(initial_memory_mb, 2),
             "memory_peak_mb": round(peak_memory_mb, 2)
