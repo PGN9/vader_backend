@@ -1,9 +1,9 @@
-fastapi==0.95.2
-uvicorn[standard]==0.22.0
+fastapi
+uvicorn[standard]
 tensorflow
-transformers==4.42.1
+transformers
 onnxruntime
-requests==2.31.0
-numpy==1.24.4
-pydantic==1.10.11
-psutil==5.9.5
+requests
+numpy
+pydantic
+psutil
