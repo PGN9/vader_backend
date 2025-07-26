@@ -49,6 +49,10 @@ class CommentsRequest(BaseModel):
 def get_size_in_kb(data: str) -> float:
     return len(data.encode("utf-8")) / 1024
 
+@app.get("/")
+def root():
+    return {"message": "Welcome! The multilingual ONNX model is live."}
+
 # === Health Check Route ===
 @app.get("/health")
 def health():
