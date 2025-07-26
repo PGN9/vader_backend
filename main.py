@@ -60,16 +60,22 @@ def predict(request: CommentsRequest):
         logits = session.run(None, onnx_inputs)[0]
         probs = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)
 
+        THRESHOLD = 0.4  # adjust this as needed
+
         results = []
         for i, p in enumerate(probs):
-            top = np.argmax(p)
             score_dict = {label: round(float(p[j]), 4) for j, label in enumerate(LABELS)}
+
+            # Pick all emotions with score above threshold
+            emotion_list = [label for j, label in enumerate(LABELS) if p[j] > THRESHOLD]
+
             results.append({
                 "id": ids[i],
                 "body": texts[i],
-                "emotion": LABELS[top],
+                "emotions": emotion_list,              # now a list, not just one
                 "emotion_scores": score_dict
             })
+
 
         return {"model": MODEL_ID, "results": results}
 
