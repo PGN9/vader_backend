@@ -63,6 +63,8 @@ def health_check():
 @app.post("/predict")
 def predict(request: CommentsRequest):
     try:
+        logger.info(f"Received {len(request.comments)} comments for prediction.")
+
         texts = [c.body for c in request.comments]
         ids = [c.id for c in request.comments]
 
@@ -72,6 +74,8 @@ def predict(request: CommentsRequest):
             batch_texts = texts[i:i + BATCH_SIZE]
             batch_ids = ids[i:i + BATCH_SIZE]
 
+            logger.info(f"Processing batch {i // BATCH_SIZE + 1} - size {len(batch_texts)}")
+
             inputs = tokenizer(
                 batch_texts,
                 return_tensors="np",
@@ -79,6 +83,7 @@ def predict(request: CommentsRequest):
                 truncation=True,
                 max_length=512
             )
+            logger.info("Tokenization complete.")
 
             onnx_inputs = {
                 "input_ids": inputs["input_ids"],
@@ -86,11 +91,16 @@ def predict(request: CommentsRequest):
             }
 
             logits = session.run(None, onnx_inputs)[0]
+            logger.info("ONNX model inference complete.")
+
             probs = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)
+            logger.info("Softmax probabilities computed.")
 
             for j, p in enumerate(probs):
                 emotion_list = [label for k, label in enumerate(LABELS) if p[k] > THRESHOLD]
                 emotion_scores = [{"label": label, "score": round(float(p[k]), 4)} for k, label in enumerate(LABELS)]
+
+                logger.debug(f"Comment ID: {batch_ids[j]} | Emotions: {emotion_list}")
 
                 results.append({
                     "id": batch_ids[j],
@@ -98,14 +108,15 @@ def predict(request: CommentsRequest):
                     "emotion_scores": emotion_scores
                 })
 
-            # 🔁 Free memory aggressively
+            logger.info(f"Batch {i // BATCH_SIZE + 1} processed. Results so far: {len(results)}")
             del batch_texts, batch_ids, inputs, onnx_inputs, logits, probs
             gc.collect()
 
+        logger.info("All batches processed successfully.")
         return {"model": MODEL_ID, "results": results}
 
     except Exception as e:
-        traceback.print_exc()
+        logger.error("Exception during prediction", exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 # Optional: run locally
