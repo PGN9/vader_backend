@@ -17,7 +17,7 @@ MODEL_ID = "bhadresh-savani/distilbert-base-uncased-emotion"
 ONNX_MODEL_URL = "https://huggingface.co/Ndi2020/bhadresh-emotion-onnx/resolve/main/model-quant.onnx"
 ONNX_MODEL_PATH = "./onnx_model/model-quant.onnx"
 LABELS = ["sadness", "joy", "love", "anger", "fear", "surprise"]
-BATCH_SIZE = 64         # Safe for <=512MB RAM
+BATCH_SIZE = 32         # Safe for <=512MB RAM
 THRESHOLD = 0.3
 TIMEOUT_SECONDS = 300   # Render hard timeout is 300s max
 
