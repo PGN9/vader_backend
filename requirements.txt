@@ -1,7 +1,8 @@
 fastapi
 uvicorn
 pydantic
-psutil
 transformers
 onnxruntime
-torch
+numpy
+requests
+
