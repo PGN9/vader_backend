@@ -4,3 +4,4 @@ pydantic
 psutil
 transformers
 onnxruntime
+torch
