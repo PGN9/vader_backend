@@ -3,5 +3,4 @@ uvicorn
 pydantic
 psutil
 transformers
-torch
 onnxruntime
