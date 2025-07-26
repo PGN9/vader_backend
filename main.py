@@ -2,22 +2,37 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
 from fastapi.responses import JSONResponse
-from transformers import pipeline
+from transformers import AutoTokenizer
+import onnxruntime as ort
+import numpy as np
+import requests
 import os
-import time
-import psutil
 import traceback
-import platform
 import json
 
+MODEL_ID = "bhadresh-savani/distilbert-base-uncased-emotion"
+ONNX_MODEL_URL = "https://your-path/model-quant.onnx"
+ONNX_MODEL_PATH = "./onnx_model/model-quant.onnx"
 
-request_count = 0
-start_time = time.time()
+LABELS = ["sadness", "joy", "love", "anger", "fear", "surprise"]
 
+# Ensure model is available
+def download_model():
+    if not os.path.exists(ONNX_MODEL_PATH):
+        print("Downloading quantized ONNX model...")
+        os.makedirs(os.path.dirname(ONNX_MODEL_PATH), exist_ok=True)
+        with open(ONNX_MODEL_PATH, "wb") as f:
+            f.write(requests.get(ONNX_MODEL_URL).content)
+        print("Download complete.")
+
+download_model()
+
+# Load model and tokenizer
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+session = ort.InferenceSession(ONNX_MODEL_PATH)
+
+# Define API
 app = FastAPI()
-
-EMOTION_CLASSIFIER_MODEL_NAME = "bhadresh-savani/distilbert-base-uncased-emotion"
-emotion_classifier = pipeline("text-classification", model=EMOTION_CLASSIFIER_MODEL_NAME, top_k=None)
 
 class Comment(BaseModel):
     id: str
@@ -26,75 +41,42 @@ class Comment(BaseModel):
 class CommentsRequest(BaseModel):
     comments: List[Comment]
 
-def get_size_in_kb(data):
-    return len(data.encode('utf-8')) / 1024  # size in KB
-
 @app.get("/")
 def root():
-    return {"message": "model backend is running."}
-
+    return {"message": "Emotion ONNX model is running."}
 
 @app.post("/predict")
-def predict_sentiment(request: CommentsRequest):
+def predict(request: CommentsRequest):
     try:
-        # Get process for memory monitoring
-        process = psutil.Process(os.getpid())
-        initial_memory_mb = process.memory_info().rss / 1024 / 1024 
-        # Track input size
-        input_json = json.dumps(request.model_dump()) if hasattr(request, "json") else str(request)
-        total_data_size_kb = get_size_in_kb(input_json)
+        texts = [c.body for c in request.comments]
+        ids = [c.id for c in request.comments]
+        inputs = tokenizer(texts, return_tensors="np", padding=True, truncation=True, max_length=512)
+
+        onnx_inputs = {
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"]
+        }
+
+        logits = session.run(None, onnx_inputs)[0]
+        probs = np.exp(logits) / np.sum(np.exp(logits), axis=1, keepdims=True)
 
         results = []
-        for comment in request.comments:
-            body = comment.body
-
-            # Emotion classification via Hugging Face
-            emotion_results = emotion_classifier(body)[0]  # Get all emotion scores
-            top_emotion = max(emotion_results, key=lambda x: x["score"])["label"]
-            emotion_scores = {res["label"]: round(res["score"], 4) for res in emotion_results}
-
+        for i, p in enumerate(probs):
+            top = np.argmax(p)
+            score_dict = {label: round(float(p[j]), 4) for j, label in enumerate(LABELS)}
             results.append({
-                "id": comment.id,
-                "body": body,
-                "emotion": top_emotion,
-                "emotion_scores": emotion_scores
+                "id": ids[i],
+                "body": texts[i],
+                "emotion": LABELS[top],
+                "emotion_scores": score_dict
             })
 
-        # Memory usage check
-        current_memory_mb = process.memory_info().rss / 1024 / 1024
-        # Peak memory usage (cross-platform)
-        if platform.system() == "Windows":
-            peak_memory_mb = getattr(process.memory_info(), "peak_wset", current_memory_mb) / 1024 / 1024
-        elif platform.system() == "Linux":
-            import resource
-            peak_memory_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            peak_memory_mb = peak_memory_kb / 1024
-        elif platform.system() == "Darwin":  # macOS
-            import resource
-            peak_memory_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-            peak_memory_mb = peak_memory_bytes / 1024 / 1024
-        else:
-            peak_memory_mb = current_memory_mb  # fallback
-
-        
-        return_data = {
-            "emotion_classifier_model": EMOTION_CLASSIFIER_MODEL_NAME,
-            "results": results,
-            "memory_initial_mb": round(initial_memory_mb, 2),
-            "memory_peak_mb": round(peak_memory_mb, 2)
-        }
-        # add data size info
-        total_return_size_kb = get_size_in_kb(json.dumps(return_data))
-        return_data["total_data_size_kb"] = round(total_data_size_kb, 2)
-        return_data["total_return_size_kb"] = round(total_return_size_kb, 2)
-        return return_data
+        return {"model": MODEL_ID, "results": results}
 
     except Exception as e:
-        print("Error occurred:", str(e))
         traceback.print_exc()
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port)
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
