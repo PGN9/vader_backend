@@ -53,7 +53,7 @@ def predict(request: CommentsRequest):
         ids = [c.id for c in request.comments]
 
         BATCH_SIZE = 64  # Tune based on RAM
-        THRESHOLD = 0.4
+        THRESHOLD = 0.3
         results = []
 
         for i in range(0, len(texts), BATCH_SIZE):
@@ -88,7 +88,7 @@ def predict(request: CommentsRequest):
                     # Optional: comment this if you don’t need the full text in output
                     # "body": batch_texts[j],
                     "emotions": emotion_list,
-                    "emotion_scores": score_dict
+                    "emotion_scores": [{"label": label, "score": round(float(p[j]), 4)} for j, label in enumerate(LABELS)]
                 })
 
             # ✂️ Free memory after each batch
