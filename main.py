@@ -11,7 +11,7 @@ import traceback
 import json
 
 MODEL_ID = "bhadresh-savani/distilbert-base-uncased-emotion"
-ONNX_MODEL_URL = "https://your-path/model-quant.onnx"
+ONNX_MODEL_URL = "https://huggingface.co/Ndi2020/bhadresh-emotion-onnx/resolve/main/model-quant.onnx"
 ONNX_MODEL_PATH = "./onnx_model/model-quant.onnx"
 
 LABELS = ["sadness", "joy", "love", "anger", "fear", "surprise"]
