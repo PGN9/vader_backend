@@ -58,12 +58,24 @@ def health_check():
         "status": "backend is alive",
         "message": "Emotion ONNX model is running."
     }
-
+import psutil
+import time
+import json
 
 @app.post("/predict")
 def predict(request: CommentsRequest):
     try:
+        # === Memory usage before ===
+        process = psutil.Process(os.getpid())
+        initial_memory_mb = process.memory_info().rss / (1024 * 1024)
+
+        start_time = time.time()
         logger.info(f"Received {len(request.comments)} comments for prediction.")
+
+        # === Measure request data size ===
+        request_json = request.model_dump()
+        request_bytes = json.dumps(request_json).encode("utf-8")
+        request_size_kb = len(request_bytes) / 1024
 
         texts = [c.body for c in request.comments]
         ids = [c.id for c in request.comments]
@@ -100,8 +112,6 @@ def predict(request: CommentsRequest):
                 emotion_list = [label for k, label in enumerate(LABELS) if p[k] > THRESHOLD]
                 emotion_scores = [{"label": label, "score": round(float(p[k]), 4)} for k, label in enumerate(LABELS)]
 
-                logger.debug(f"Comment ID: {batch_ids[j]} | Emotions: {emotion_list}")
-
                 results.append({
                     "id": batch_ids[j],
                     "emotions": emotion_list,
@@ -112,14 +122,20 @@ def predict(request: CommentsRequest):
             del batch_texts, batch_ids, inputs, onnx_inputs, logits, probs
             gc.collect()
 
-        logger.info("All batches processed successfully.")
-        return {"model": MODEL_ID, "results": results}
+        # === Measure return data size ===
+        response_payload = {
+            "model_used": MODEL_ID,
+            "memory_initial_mb": round(initial_memory_mb, 2),
+            "memory_peak_mb": round(process.memory_info().rss / (1024 * 1024), 2),
+            "total_data_size_kb": round(request_size_kb, 2),
+            "total_return_size_kb": round(len(json.dumps({"results": results}).encode("utf-8")) / 1024, 2),
+            "results": results
+        }
+
+        logger.info(f"Final response: {len(results)} results, response size: {response_payload['total_return_size_kb']} KB")
+
+        return response_payload
 
     except Exception as e:
         logger.error("Exception during prediction", exc_info=True)
         return JSONResponse(status_code=500, content={"error": str(e)})
-
-# Optional: run locally
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
