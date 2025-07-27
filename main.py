@@ -7,10 +7,11 @@ import onnxruntime as ort
 import numpy as np
 import requests
 import os
-import traceback
 import json
 import gc
 import logging
+import psutil
+import time
 
 # === Config ===
 MODEL_ID = "bhadresh-savani/distilbert-base-uncased-emotion"
@@ -58,9 +59,7 @@ def health_check():
         "status": "backend is alive",
         "message": "Emotion ONNX model is running."
     }
-import psutil
-import time
-import json
+
 
 @app.post("/predict")
 def predict(request: CommentsRequest):

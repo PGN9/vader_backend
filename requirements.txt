@@ -6,3 +6,4 @@ optimum[onnxruntime]
 onnxruntime
 numpy
 requests
+psutil
